@@ -359,6 +359,19 @@ function sanitizeDiagnosticForRenderer(value) {
     sanitized = sanitized.split(homeDir).join("~");
   }
 
+  const userProfile = process.env.USERPROFILE;
+  if (userProfile) {
+    sanitized = sanitized.split(userProfile).join("%USERPROFILE%");
+  }
+
+  sanitized = sanitized.replace(/[A-Za-z]:\\[^\s:;,()"'`]+(?:\\[^\s:;,()"'`]+)+/g, (match) => {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData && match.startsWith(localAppData)) {
+      return match.split(localAppData).join("%LOCALAPPDATA%");
+    }
+    return `...\\${path.win32.basename(match)}`;
+  });
+
   const allowedPaths = new Set(["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex"]);
   sanitized = sanitized.replace(/\/[^\s:;,()"'`]+(?:\/[^\s:;,()"'`]+)+/g, (match) => {
     if (allowedPaths.has(match)) return match;
@@ -407,5 +420,7 @@ module.exports = {
   getFullCodexDiagnostics,
   getRendererCodexDiagnostics,
   normalizeSnapshot,
-  buildCodexChildEnv
+  buildCodexChildEnv,
+  _sanitizeCandidatePath: sanitizeCandidatePath,
+  _sanitizeDiagnosticForRenderer: sanitizeDiagnosticForRenderer
 };

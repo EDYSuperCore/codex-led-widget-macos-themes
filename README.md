@@ -62,6 +62,28 @@ npm run build:win
 npm run debug:quota
 ```
 
+安全诊断脱敏测试：
+
+```bash
+npm run test:sanitize
+```
+
+## Release 构建
+
+推送 `v*` tag 会触发 GitHub Actions 自动构建并发布 Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions 会自动构建并上传：
+
+- macOS dmg / zip
+- Windows portable exe
+
+当前版本未进行 Apple Developer 签名、notarize 或 Windows 代码签名。Windows portable 构建依赖 electron-builder 下载 NSIS；如果失败，多半是 GitHub Actions 网络依赖或上游下载问题，不一定是应用代码失败。
+
 主题可以通过托盘菜单中的“主题”子菜单切换，也可以点击窗口顶部的主题按钮切换。主题选择保存在本机 `localStorage` 中，重启后会自动恢复。
 
 ## 隐私说明
@@ -122,6 +144,28 @@ Debug quota loading:
 ```bash
 npm run debug:quota
 ```
+
+Run sanitization tests:
+
+```bash
+npm run test:sanitize
+```
+
+## Release Builds
+
+Pushing a `v*` tag triggers GitHub Actions to build and publish a Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions uploads:
+
+- macOS dmg / zip
+- Windows portable exe
+
+Current builds are not Apple Developer signed, notarized, or Windows code-signed. Windows portable builds rely on electron-builder downloading NSIS; failures there are usually network or upstream download issues rather than application code failures.
 
 Themes can be changed from the tray menu or the theme button in the title bar. The selected theme is stored locally in `localStorage` and restored on restart.
 
