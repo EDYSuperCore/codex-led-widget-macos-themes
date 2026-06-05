@@ -117,4 +117,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: release-assets/*
           generate_release_notes: true
-          prerelease: true
+          prerelease: false
