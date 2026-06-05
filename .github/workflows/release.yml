@@ -42,7 +42,7 @@ jobs:
         run: npm run test:sanitize --if-present
 
       - name: Build macOS packages
-        run: npm run build:mac
+        run: npm run build:mac -- --publish never
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -85,7 +85,7 @@ jobs:
         run: npm run test:sanitize --if-present
 
       - name: Build Windows portable
-        run: npm run build:win
+        run: npm run build:win -- --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -110,6 +110,8 @@ jobs:
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           target_commitish: ${{ github.sha }}
