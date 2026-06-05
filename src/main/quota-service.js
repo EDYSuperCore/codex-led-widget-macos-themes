@@ -6,8 +6,14 @@ const { getCodexExecutableCandidates } = require("./platform");
 const DEFAULT_TIMEOUT_MS = 12000;
 
 function resolveCodexPath() {
-  if (process.env.CODEX_CLI_PATH && fs.existsSync(process.env.CODEX_CLI_PATH)) {
-    return process.env.CODEX_CLI_PATH;
+  const codexCliPath = process.env.CODEX_CLI_PATH;
+  if (codexCliPath) {
+    if (!path.isAbsolute(codexCliPath)) {
+      return codexCliPath;
+    }
+    if (fs.existsSync(codexCliPath)) {
+      return codexCliPath;
+    }
   }
 
   const candidates = getCodexExecutableCandidates();
@@ -24,8 +30,8 @@ function resolveCodexPath() {
   return commandFallback;
 }
 
-async function getQuota() {
-  const response = await requestRateLimits();
+async function getQuota(options = {}) {
+  const response = await requestRateLimits(options);
   const snapshot =
     response.rateLimitsByLimitId?.codex ||
     response.rateLimits ||
@@ -81,24 +87,13 @@ function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function requestRateLimits() {
+function requestRateLimits(options = {}) {
+  const debug = Boolean(options.debug);
   const codexPath = resolveCodexPath();
-  const childEnv = {
-    ...process.env,
-    PATH: [
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-      "/usr/sbin",
-      "/sbin",
-      process.env.PATH || ""
-    ].join(":")
-  };
   const child = spawn(codexPath, ["app-server", "--listen", "stdio://"], {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-    env: childEnv
+    env: buildCodexChildEnv()
   });
 
   let buffer = "";
@@ -146,13 +141,19 @@ function requestRateLimits() {
   return new Promise((resolve, reject) => {
     child.once("error", (error) => {
       cleanup();
-      reject(new Error(formatStartError({ codexPath, error })));
+      reject(new Error(debug ? formatStartErrorForDebug(error, codexPath) : formatStartErrorForRenderer(error, codexPath)));
     });
 
     child.once("exit", (code) => {
       if (pending.size > 0) {
         cleanup();
-        reject(new Error(formatAppServerExitError({ codexPath, code, stderr })));
+        reject(
+          new Error(
+            debug
+              ? formatAppServerExitErrorForDebug({ codexPath, code, stderr })
+              : formatAppServerExitErrorForRenderer({ codexPath, code, stderr })
+          )
+        );
       }
     });
 
@@ -171,40 +172,159 @@ function requestRateLimits() {
         resolve(result);
       } catch (error) {
         cleanup();
-        const message = stderr
-          ? `${error.message}\nCodex path: ${codexPath}\nCodex stderr:\n${sanitizeDiagnostic(stderr.trim())}`
-          : error.message;
+        const message = formatRequestError({ error, codexPath, stderr, debug });
         reject(new Error(message));
       }
     })();
   });
 }
 
-function getCodexDiagnostics() {
+function buildCodexChildEnv() {
+  const env = { ...process.env };
+  if (process.platform === "win32") return env;
+
+  const additions =
+    process.platform === "darwin"
+      ? ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+      : ["/usr/local/bin", "/usr/bin", "/bin"];
+  env.PATH = [...additions, process.env.PATH || ""].filter(Boolean).join(path.delimiter);
+  return env;
+}
+
+function getCodexCliPathEnvState() {
+  const value = process.env.CODEX_CLI_PATH || "";
+  if (!value) {
+    return {
+      hasCodexCliPathEnv: false,
+      codexCliPathEnvValid: false,
+      ignoredCodexCliPathReason: null
+    };
+  }
+
+  if (!path.isAbsolute(value)) {
+    return {
+      hasCodexCliPathEnv: true,
+      codexCliPathEnvValid: true,
+      ignoredCodexCliPathReason: null
+    };
+  }
+
+  if (fs.existsSync(value)) {
+    return {
+      hasCodexCliPathEnv: true,
+      codexCliPathEnvValid: true,
+      ignoredCodexCliPathReason: null
+    };
+  }
+
   return {
-    platform: process.platform,
-    arch: process.arch,
-    envPath: process.env.PATH || "",
-    codexPath: resolveCodexPath(),
-    candidates: getCodexExecutableCandidates().map((candidate) => ({
-      path: candidate,
-      exists: path.isAbsolute(candidate) ? fs.existsSync(candidate) : null
-    }))
+    hasCodexCliPathEnv: true,
+    codexCliPathEnvValid: false,
+    ignoredCodexCliPathReason: "CODEX_CLI_PATH points to an absolute path that does not exist."
   };
 }
 
-function formatStartError({ codexPath, error }) {
+function getEffectivePath() {
+  const env = buildCodexChildEnv();
+  return env.PATH || env.Path || "";
+}
+
+function getCodexDiagnostics(options = {}) {
+  const full = Boolean(options.full);
+  const effectivePath = getEffectivePath();
+  const codexCliPathState = getCodexCliPathEnvState();
+  const diagnostics = {
+    platform: process.platform,
+    arch: process.arch,
+    codexPath: full ? resolveCodexPath() : sanitizeCandidatePath(resolveCodexPath()),
+    candidates: getCodexExecutableCandidates().map((candidate) => ({
+      path: full ? candidate : sanitizeCandidatePath(candidate),
+      exists: path.isAbsolute(candidate) ? fs.existsSync(candidate) : null
+    })),
+    hasHomebrewPath: effectivePath.split(path.delimiter).includes("/opt/homebrew/bin"),
+    hasUsrLocalPath: effectivePath.split(path.delimiter).includes("/usr/local/bin"),
+    ...codexCliPathState
+  };
+
+  if (full) {
+    diagnostics.envPath = process.env.PATH || "";
+    diagnostics.effectivePath = effectivePath;
+    diagnostics.codexCliPathEnv = process.env.CODEX_CLI_PATH || "";
+  }
+
+  return diagnostics;
+}
+
+function sanitizeCandidatePath(candidate) {
+  if (!candidate || !path.isAbsolute(candidate)) return candidate;
+  const allowedPaths = new Set(["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex"]);
+  if (allowedPaths.has(candidate)) return candidate;
+
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    const normalizedCandidate = path.normalize(candidate).toLowerCase();
+    const normalizedWindowsCodex = path
+      .join(localAppData, "OpenAI", "Codex", "bin", "codex.exe")
+      .toLowerCase();
+    if (normalizedCandidate === normalizedWindowsCodex) {
+      return "%LOCALAPPDATA%/OpenAI/Codex/bin/codex.exe";
+    }
+  }
+
+  const homeDir = process.env.HOME;
+  if (homeDir && candidate.startsWith(`${homeDir}${path.sep}`)) {
+    return `~/${candidate.slice(homeDir.length + 1)}`;
+  }
+
+  return `/.../${path.basename(candidate)}`;
+}
+
+function getFullCodexDiagnostics() {
+  return getCodexDiagnostics({ full: true });
+}
+
+function getRendererCodexDiagnostics() {
+  return {
+    ...getCodexDiagnostics({ full: false })
+  };
+}
+
+function formatStartErrorForRenderer(error, codexPath) {
   return [
     "Failed to start Codex CLI.",
-    `codexPath: ${codexPath}`,
     `platform: ${process.platform}`,
-    `PATH: ${process.env.PATH || ""}`,
     `errorCode: ${error.code || "unknown"}`,
-    `message: ${error.message}`
+    `message: ${sanitizeDiagnosticForRenderer(error.message)}`,
+    `codexPath: ${sanitizeCandidatePath(codexPath)}`,
+    "Please make sure Codex CLI is installed and `codex --version` works, or set CODEX_CLI_PATH."
   ].join("\n");
 }
 
-function formatAppServerExitError({ codexPath, code, stderr }) {
+function formatStartErrorForDebug(error, codexPath) {
+  return [
+    "Failed to start Codex CLI.",
+    `platform: ${process.platform}`,
+    `arch: ${process.arch}`,
+    `codexPath: ${codexPath}`,
+    `PATH: ${process.env.PATH || ""}`,
+    `effectivePATH: ${getEffectivePath()}`,
+    `errorCode: ${error.code || "unknown"}`,
+    `message: ${error.message}`,
+    "candidates:",
+    JSON.stringify(getCodexDiagnostics({ full: true }).candidates, null, 2)
+  ].join("\n");
+}
+
+function formatAppServerExitErrorForRenderer({ codexPath, code, stderr }) {
+  return [
+    "Codex app-server exited before returning quota.",
+    `Codex path: ${sanitizeCandidatePath(codexPath)}`,
+    `Exit code: ${code ?? "unknown"}`,
+    `Stderr: ${safeStderrSummary(stderr)}`
+  ].join("\n");
+}
+
+function formatAppServerExitErrorForDebug({ codexPath, code, stderr }) {
   return [
     "Codex app-server exited before returning quota data.",
     `Codex path: ${codexPath}`,
@@ -213,11 +333,50 @@ function formatAppServerExitError({ codexPath, code, stderr }) {
   ].join("\n");
 }
 
+function formatRequestError({ error, codexPath, stderr, debug }) {
+  if (debug) {
+    return stderr
+      ? `${error.message}\nCodex path: ${codexPath}\nCodex stderr:\n${sanitizeDiagnostic(stderr.trim())}`
+      : error.message;
+  }
+
+  return stderr
+    ? `${sanitizeDiagnosticForRenderer(error.message)}\nCodex path: ${sanitizeCandidatePath(codexPath)}\nCodex stderr:\n${safeStderrSummary(stderr)}`
+    : sanitizeDiagnosticForRenderer(error.message);
+}
+
 function sanitizeDiagnostic(value) {
   return String(value)
     .replace(/Bearer\s+[\w.-]+/gi, "Bearer [redacted]")
     .replace(/(token=)[^&\s]+/gi, "$1[redacted]")
     .replace(/(api[_-]?key=)[^&\s]+/gi, "$1[redacted]");
+}
+
+function sanitizeDiagnosticForRenderer(value) {
+  let sanitized = sanitizeDiagnostic(value);
+  const homeDir = process.env.HOME;
+  if (homeDir) {
+    sanitized = sanitized.split(homeDir).join("~");
+  }
+
+  const allowedPaths = new Set(["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex"]);
+  sanitized = sanitized.replace(/\/[^\s:;,()"'`]+(?:\/[^\s:;,()"'`]+)+/g, (match) => {
+    if (allowedPaths.has(match)) return match;
+    return `/.../${path.basename(match)}`;
+  });
+
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    sanitized = sanitized.split(localAppData).join("%LOCALAPPDATA%");
+  }
+
+  return sanitized;
+}
+
+function safeStderrSummary(stderr) {
+  const sanitized = sanitizeDiagnosticForRenderer(String(stderr || "").trim());
+  if (!sanitized) return "(empty)";
+  return sanitized.length > 500 ? `${sanitized.slice(0, 500)}...` : sanitized;
 }
 
 function handleMessage(line, pending) {
@@ -242,4 +401,11 @@ function handleMessage(line, pending) {
   }
 }
 
-module.exports = { getQuota, getCodexDiagnostics, normalizeSnapshot };
+module.exports = {
+  getQuota,
+  getCodexDiagnostics,
+  getFullCodexDiagnostics,
+  getRendererCodexDiagnostics,
+  normalizeSnapshot,
+  buildCodexChildEnv
+};

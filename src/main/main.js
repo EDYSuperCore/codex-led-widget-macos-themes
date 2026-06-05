@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, screen } = require("electron");
 const path = require("node:path");
-const { getQuota, getCodexDiagnostics } = require("./quota-service");
+const { getQuota, getRendererCodexDiagnostics } = require("./quota-service");
 const { openCodexAppOrExecutable } = require("./platform");
 
 let mainWindow;
@@ -116,7 +116,7 @@ app.whenReady().then(() => {
   createTray();
 
   ipcMain.handle("quota:get", async () => getQuota());
-  ipcMain.handle("codex:diagnostics", async () => getCodexDiagnostics());
+  ipcMain.handle("codex:diagnostics", async () => getRendererCodexDiagnostics());
   ipcMain.handle("window:minimize", () => mainWindow?.hide());
   ipcMain.handle("window:close", () => app.quit());
   ipcMain.handle("window:alwaysOnTop:get", () => isAlwaysOnTop);

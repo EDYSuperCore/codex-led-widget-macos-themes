@@ -22,7 +22,11 @@
       document.documentElement.style.setProperty(name, value);
     });
     document.body.dataset.theme = theme.id;
-    localStorage.setItem(STORAGE_KEY, theme.id);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme.id);
+    } catch (error) {
+      console.warn("Failed to persist Codex theme:", error);
+    }
     return theme;
   }
 
@@ -36,7 +40,13 @@
   }
 
   function loadSavedTheme() {
-    return applyTheme(localStorage.getItem(STORAGE_KEY) || FALLBACK_THEME_ID);
+    let savedThemeId = null;
+    try {
+      savedThemeId = localStorage.getItem(STORAGE_KEY);
+    } catch (error) {
+      console.warn("Failed to read saved Codex theme:", error);
+    }
+    return applyTheme(savedThemeId || FALLBACK_THEME_ID);
   }
 
   window.codexThemeManager = {

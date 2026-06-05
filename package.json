@@ -1,6 +1,6 @@
 {
   "name": "codex-led-widget",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cross-platform desktop LED widget for showing local Codex usage quota.",
   "main": "src/main/main.js",
   "author": "Codex Quota Widget Contributors",
@@ -21,7 +21,6 @@
     "directories": {
       "output": "dist"
     },
-    "electronDist": "node_modules/electron/dist",
     "files": [
       "src/**/*",
       "package.json"
@@ -59,7 +58,7 @@
       "artifactName": "Codex-Quota-Widget-${version}-mac-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "Codex-Quota-Widget-${version}-win-x64.exe"
+      "artifactName": "Codex-Quota-Widget-${version}-win-${arch}.${ext}"
     }
   },
   "devDependencies": {

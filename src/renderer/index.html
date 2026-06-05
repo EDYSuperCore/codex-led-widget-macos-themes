@@ -54,8 +54,15 @@
         <div id="liquidMeter" class="liquid-meter" aria-label="Codex 剩余额度">
           <div class="glass-rim"></div>
           <div id="liquidFill" class="liquid-fill">
-            <div class="wave wave-one"></div>
-            <div class="wave wave-two"></div>
+            <svg class="liquid-wave" viewBox="0 0 200 120" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="liquidGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--meter-fill-a)" />
+                  <stop offset="100%" stop-color="var(--meter-fill-b)" />
+                </linearGradient>
+              </defs>
+              <path id="liquidWavePath" fill="url(#liquidGradient)" d="M0 18 C40 18 60 18 100 18 S160 18 200 18 L200 120 L0 120 Z"></path>
+            </svg>
           </div>
           <div class="shine"></div>
           <div class="meter-copy">

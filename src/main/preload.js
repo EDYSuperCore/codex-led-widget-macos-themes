@@ -9,12 +9,18 @@ contextBridge.exposeInMainWorld("codexQuota", {
   setAlwaysOnTop: (value) => ipcRenderer.invoke("window:alwaysOnTop:set", value),
   openCodex: () => ipcRenderer.invoke("external:openCodex"),
   onRefresh: (callback) => {
-    ipcRenderer.on("quota:refresh", callback);
+    const listener = () => callback();
+    ipcRenderer.on("quota:refresh", listener);
+    return () => ipcRenderer.removeListener("quota:refresh", listener);
   },
   onThemeSet: (callback) => {
-    ipcRenderer.on("theme:set", (_event, themeId) => callback(themeId));
+    const listener = (_event, themeId) => callback(themeId);
+    ipcRenderer.on("theme:set", listener);
+    return () => ipcRenderer.removeListener("theme:set", listener);
   },
   onAlwaysOnTopChanged: (callback) => {
-    ipcRenderer.on("window:alwaysOnTopChanged", (_event, value) => callback(value));
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("window:alwaysOnTopChanged", listener);
+    return () => ipcRenderer.removeListener("window:alwaysOnTopChanged", listener);
   }
 });

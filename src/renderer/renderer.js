@@ -10,6 +10,7 @@ const i18n = {
     ready: "额度已更新",
     reading: "正在读取 Codex 额度...",
     diagnosticHint: "Codex CLI 启动失败，请查看控制台诊断信息",
+    noQuotaWindow: "未返回额度窗口",
     theme: "主题",
     reset: "重置",
     used: "已用",
@@ -28,6 +29,7 @@ const i18n = {
     ready: "Quota updated",
     reading: "Reading Codex quota...",
     diagnosticHint: "Codex CLI failed to start. Check console diagnostics.",
+    noQuotaWindow: "No quota window returned",
     theme: "Theme",
     reset: "Reset",
     used: "Used",
@@ -41,6 +43,11 @@ let language = "zh";
 let isPinned = true;
 let latestQuota = null;
 let latestError = null;
+let currentRemainingPercent = null;
+let waveRafId = null;
+let wavePhase = Math.random() * Math.PI * 2;
+let waveSpeed = 0.018 + Math.random() * 0.01;
+let waveTilt = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -64,6 +71,7 @@ const elements = {
   planText: $("planText"),
   statusDot: $("statusDot"),
   statusText: $("statusText"),
+  liquidMeter: $("liquidMeter"),
   liquidFill: $("liquidFill")
 };
 
@@ -75,6 +83,18 @@ function setState(state, bodyState = state) {
   document.body.dataset.state = bodyState;
   elements.trafficLight.className = `traffic-light ${state}`;
   elements.statusDot.className = `status-dot ${state}`;
+}
+
+function setUnknownQuota() {
+  setState("loading", "unknown");
+  currentRemainingPercent = 0;
+  elements.stateText.textContent = t("unknown");
+  elements.remaining.textContent = "--%";
+  elements.primaryText.textContent = "--";
+  elements.secondaryText.textContent = "--";
+  elements.statusText.textContent = t("noQuotaWindow");
+  elements.statusText.title = t("noQuotaWindow");
+  elements.liquidFill.style.height = "0%";
 }
 
 function setLoading() {
@@ -109,6 +129,56 @@ function formatPlan(value) {
   if (!value) return t("unknown");
   const plan = String(value);
   return `${plan.charAt(0).toUpperCase()}${plan.slice(1)}`;
+}
+
+function randomizeWave(remainingPercent) {
+  const percent = Number(remainingPercent);
+  if (Number.isFinite(percent)) {
+    currentRemainingPercent = percent;
+  }
+
+  waveSpeed = 0.014 + Math.random() * 0.014;
+  waveTilt = (Math.random() - 0.5) * 2.0;
+  startLiquidWave();
+}
+
+function startLiquidWave() {
+  if (waveRafId) return;
+
+  const path = document.getElementById("liquidWavePath");
+  if (!path) return;
+
+  const tick = () => {
+    updateLiquidWavePath(path);
+    waveRafId = requestAnimationFrame(tick);
+  };
+
+  waveRafId = requestAnimationFrame(tick);
+}
+
+function updateLiquidWavePath(path) {
+  const percent = Number.isFinite(currentRemainingPercent) ? currentRemainingPercent : 0;
+  const safePercent = Math.max(0, Math.min(100, percent));
+  const baseY = 18;
+  const amp = safePercent > 85 ? 2.8 : safePercent < 12 ? 3.2 : 4.8;
+
+  wavePhase += waveSpeed;
+
+  const p0 = baseY + Math.sin(wavePhase) * amp + waveTilt;
+  const p1 = baseY + Math.sin(wavePhase + 1.4) * amp;
+  const p2 = baseY + Math.sin(wavePhase + 2.8) * amp - waveTilt;
+  const p3 = baseY + Math.sin(wavePhase + 4.2) * amp;
+  const p4 = baseY + Math.sin(wavePhase + 5.6) * amp;
+  const d = [
+    `M 0 ${p0.toFixed(2)}`,
+    `C 35 ${p1.toFixed(2)}, 65 ${p2.toFixed(2)}, 100 ${p3.toFixed(2)}`,
+    `S 165 ${p4.toFixed(2)}, 200 ${p0.toFixed(2)}`,
+    "L 200 120",
+    "L 0 120",
+    "Z"
+  ].join(" ");
+
+  path.setAttribute("d", d);
 }
 
 function renderStaticLabels() {
@@ -147,6 +217,12 @@ function renderQuota(quota) {
   latestQuota = quota;
   latestError = null;
 
+  if (quota.remainingPercent == null) {
+    setUnknownQuota();
+    elements.planText.textContent = formatPlan(quota.planType);
+    return;
+  }
+
   const percent = Number.isFinite(Number(quota.remainingPercent)) ? Math.round(Number(quota.remainingPercent)) : 0;
   const state = quotaState(percent);
   setState(state);
@@ -163,6 +239,7 @@ function renderQuota(quota) {
   elements.statusText.textContent = statusMessage;
   elements.statusText.title = statusMessage;
   elements.liquidFill.style.height = `${Math.max(8, Math.min(92, percent))}%`;
+  randomizeWave(percent);
 }
 
 function renderError(error) {
@@ -229,7 +306,9 @@ function bindEvents() {
     rerenderLanguage();
   });
   elements.themeBtn.addEventListener("click", () => {
-    showThemeNotice(window.codexThemeManager.nextTheme());
+    const theme = window.codexThemeManager.nextTheme();
+    randomizeWave(latestQuota?.remainingPercent);
+    showThemeNotice(theme);
   });
   elements.pinBtn.addEventListener("click", async () => {
     isPinned = await window.codexQuota.setAlwaysOnTop(!isPinned);
@@ -241,7 +320,9 @@ function bindEvents() {
 
   window.codexQuota.onRefresh(refreshQuota);
   window.codexQuota.onThemeSet((themeId) => {
-    showThemeNotice(window.codexThemeManager.applyTheme(themeId));
+    const theme = window.codexThemeManager.applyTheme(themeId);
+    randomizeWave(latestQuota?.remainingPercent);
+    showThemeNotice(theme);
   });
   window.codexQuota.onAlwaysOnTopChanged((value) => {
     isPinned = Boolean(value);
@@ -252,6 +333,7 @@ function bindEvents() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   window.codexThemeManager.loadSavedTheme();
+  startLiquidWave();
   renderStaticLabels();
   bindEvents();
   await syncPinState();

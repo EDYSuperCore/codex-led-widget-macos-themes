@@ -3,7 +3,7 @@
 }
 
 :root {
-  --window-radius: 32px;
+  --window-radius: 24px;
 
   --window-bg-a: rgba(34, 42, 52, 0.94);
   --window-bg-b: rgba(29, 34, 42, 0.94);
@@ -36,7 +36,7 @@
   --meter-empty-a: rgba(255, 255, 255, 0.16);
   --meter-empty-b: rgba(255, 255, 255, 0.06);
 
-  --card-radius: 18px;
+  --card-radius: 14px;
 }
 
 html,
@@ -293,28 +293,29 @@ svg {
 }
 
 .glass-rim {
-  z-index: 4;
+  z-index: 3;
   border: 1px solid var(--card-border-active);
   border-radius: inherit;
 }
 
 .shine {
-  z-index: 3;
+  z-index: 2;
   background: radial-gradient(circle at 34% 22%, var(--window-inner-highlight), transparent 26%);
   mix-blend-mode: screen;
 }
 
 .liquid-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   top: auto;
   z-index: 1;
   height: 18%;
-  overflow: hidden;
-  background: linear-gradient(180deg, var(--meter-fill-a), var(--meter-fill-b));
-  transition: height 360ms ease;
-}
-
-body[data-state="warning"] .liquid-fill {
-  background: linear-gradient(180deg, var(--warning), var(--meter-fill-b));
+  overflow: visible;
+  background: transparent;
+  transition: height 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: height;
 }
 
 body[data-state="danger"],
@@ -322,33 +323,39 @@ body[data-state="error"] {
   color: var(--text);
 }
 
-body[data-state="danger"] .liquid-fill,
-body[data-state="error"] .liquid-fill {
-  background: linear-gradient(180deg, var(--danger), var(--meter-fill-b));
-}
-
-.wave {
+.liquid-wave {
   position: absolute;
-  left: -35%;
+  left: -8%;
+  right: auto;
   top: -18px;
-  width: 170%;
-  height: 36px;
-  border-radius: 44%;
-  background: var(--window-inner-highlight);
-  animation: wave 4.8s linear infinite;
+  width: 116%;
+  height: calc(100% + 24px);
+  overflow: visible;
+  pointer-events: none;
 }
 
-.wave-two {
-  top: -12px;
-  opacity: 0.55;
-  animation-duration: 7s;
-  animation-direction: reverse;
+.liquid-wave path {
+  fill: url("#liquidGradient");
+}
+
+body[data-state="warning"] .liquid-wave stop:first-child {
+  stop-color: var(--warning);
+}
+
+body[data-state="danger"] .liquid-wave stop:first-child,
+body[data-state="error"] .liquid-wave stop:first-child {
+  stop-color: var(--danger);
 }
 
 .meter-copy {
+  position: absolute;
+  inset: 0;
   z-index: 5;
-  display: grid;
-  place-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
   text-align: center;
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.42);
 }
@@ -439,13 +446,4 @@ body[data-state="error"] .liquid-fill {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@keyframes wave {
-  from {
-    transform: translateX(0) rotate(0deg);
-  }
-  to {
-    transform: translateX(18%) rotate(360deg);
-  }
 }
