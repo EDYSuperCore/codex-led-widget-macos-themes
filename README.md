@@ -1,5 +1,9 @@
 # Codex LED Widget
 
+> 本项目基于原项目 [xicunwus2025-sys/codex-led-widget](https://github.com/xicunwus2025-sys/codex-led-widget) 继续维护，当前分支主要增加 macOS 支持、内置主题和更完整的 Codex CLI 诊断。
+>
+> This project is maintained based on the original [xicunwus2025-sys/codex-led-widget](https://github.com/xicunwus2025-sys/codex-led-widget), with added macOS support, built-in themes, and improved Codex CLI diagnostics.
+
 ## 中文说明
 
 Codex LED Widget 是一个支持 Windows/macOS 的桌面透明悬浮小组件，用于显示本机 Codex 剩余额度。
