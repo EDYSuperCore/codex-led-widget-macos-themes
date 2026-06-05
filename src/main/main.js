@@ -1,10 +1,19 @@
 const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, screen } = require("electron");
 const path = require("node:path");
-const { getQuota } = require("./quota-service");
+const { getQuota, getCodexDiagnostics } = require("./quota-service");
+const { openCodexAppOrExecutable } = require("./platform");
 
 let mainWindow;
 let tray;
 let isAlwaysOnTop = true;
+
+const themes = [
+  { id: "liquid-dark", label: "Liquid Dark" },
+  { id: "aurora", label: "Aurora" },
+  { id: "graphite", label: "Graphite" },
+  { id: "sakura", label: "Sakura" },
+  { id: "solar", label: "Solar" }
+];
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -50,6 +59,9 @@ function createTray() {
   const icon = nativeImage.createFromDataURL(
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAK0lEQVR42mNk+M9Qz0AEYBxVSFUBCzAyMjL8Z2BgYJjFqIGjBo4aOAIAgV4EfpO0k7EAAAAASUVORK5CYII="
   );
+  if (process.platform === "darwin") {
+    icon.setTemplateImage(true);
+  }
   tray = new Tray(icon);
   tray.setToolTip("Codex Quota Widget");
   rebuildTrayMenu();
@@ -62,6 +74,13 @@ function rebuildTrayMenu() {
     Menu.buildFromTemplate([
       { label: "显示/隐藏", click: toggleWindow },
       { label: "刷新额度", click: () => mainWindow?.webContents.send("quota:refresh") },
+      {
+        label: "主题",
+        submenu: themes.map((theme) => ({
+          label: theme.label,
+          click: () => mainWindow?.webContents.send("theme:set", theme.id)
+        }))
+      },
       {
         label: isAlwaysOnTop ? "取消置顶" : "置顶",
         click: () => setAlwaysOnTop(!isAlwaysOnTop)
@@ -97,12 +116,18 @@ app.whenReady().then(() => {
   createTray();
 
   ipcMain.handle("quota:get", async () => getQuota());
+  ipcMain.handle("codex:diagnostics", async () => getCodexDiagnostics());
   ipcMain.handle("window:minimize", () => mainWindow?.hide());
   ipcMain.handle("window:close", () => app.quit());
   ipcMain.handle("window:alwaysOnTop:get", () => isAlwaysOnTop);
   ipcMain.handle("window:alwaysOnTop:set", (_event, value) => setAlwaysOnTop(value));
-  ipcMain.handle("external:openCodex", () => {
-    shell.openPath(path.join(process.env.LOCALAPPDATA || "", "OpenAI", "Codex", "bin", "codex.exe"));
+  ipcMain.handle("external:openCodex", async () => {
+    try {
+      await openCodexAppOrExecutable(shell);
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   app.on("activate", () => {

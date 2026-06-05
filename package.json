@@ -1,7 +1,7 @@
 {
   "name": "codex-led-widget",
   "version": "0.1.0",
-  "description": "Windows desktop LED widget for showing local Codex usage quota.",
+  "description": "Cross-platform desktop LED widget for showing local Codex usage quota.",
   "main": "src/main/main.js",
   "author": "Codex Quota Widget Contributors",
   "license": "MIT",
@@ -9,8 +9,11 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "build": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win portable",
-    "build:dir": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --dir"
+    "build": "electron-builder",
+    "build:dir": "electron-builder --dir",
+    "build:win": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac dmg zip",
+    "debug:quota": "node scripts/debug-quota.js"
   },
   "build": {
     "appId": "cn.codex.quota.widget",
@@ -18,6 +21,7 @@
     "directories": {
       "output": "dist"
     },
+    "electronDist": "node_modules/electron/dist",
     "files": [
       "src/**/*",
       "package.json"
@@ -32,6 +36,27 @@
           ]
         }
       ]
+    },
+    "mac": {
+      "identity": null,
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Codex-Quota-Widget-${version}-mac-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "Codex-Quota-Widget-${version}-win-x64.exe"

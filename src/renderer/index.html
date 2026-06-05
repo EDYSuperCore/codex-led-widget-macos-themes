@@ -21,6 +21,12 @@
         </div>
         <div class="window-actions">
           <button id="langBtn" class="text-button" title="Language" aria-label="Language">EN</button>
+          <button id="themeBtn" class="icon-button" title="主题" aria-label="主题">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a9 9 0 1 0 0 18h1.5a1.8 1.8 0 0 0 1.2-3.1 1.8 1.8 0 0 1 1.2-3.1H18a6 6 0 0 0 0-12h-6z" />
+              <path d="M7.5 10h.01M9.5 6.8h.01M14.5 6.8h.01M16.5 10h.01" />
+            </svg>
+          </button>
           <button id="pinBtn" class="icon-button active" title="取消置顶" aria-label="取消置顶">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M14 4l6 6-3 1-4 4v4l-2 2-2-6-6-2 2-2h4l4-4 1-3z" />
@@ -80,6 +86,8 @@
       </footer>
     </main>
 
+    <script src="./themes.js"></script>
+    <script src="./theme-manager.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>
