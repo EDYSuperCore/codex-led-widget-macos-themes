@@ -9,9 +9,16 @@ const i18n = {
     plan: "计划",
     ready: "额度已更新",
     reading: "正在读取 Codex 额度...",
+    refreshing: "正在刷新额度...",
+    refreshingAuto: "后台刷新额度...",
+    refreshingReset: "额度窗口已重置，正在更新...",
+    refreshFailedStale: "刷新失败，已保留上次结果",
+    refreshFailedStaleAuto: "后台刷新失败，已保留上次结果",
+    refreshFailedStaleReset: "重置后刷新失败，已保留上次结果",
     diagnosticHint: "Codex CLI 启动失败，请查看控制台诊断信息",
     noQuotaWindow: "未返回额度窗口",
     theme: "主题",
+    refresh: "刷新",
     reset: "重置",
     used: "已用",
     unknown: "未知",
@@ -28,9 +35,16 @@ const i18n = {
     plan: "Plan",
     ready: "Quota updated",
     reading: "Reading Codex quota...",
+    refreshing: "Updating quota...",
+    refreshingAuto: "Refreshing quota in background...",
+    refreshingReset: "Quota window reset, updating...",
+    refreshFailedStale: "Refresh failed, keeping last result",
+    refreshFailedStaleAuto: "Background refresh failed, keeping last result",
+    refreshFailedStaleReset: "Refresh after reset failed, keeping last result",
     diagnosticHint: "Codex CLI failed to start. Check console diagnostics.",
     noQuotaWindow: "No quota window returned",
     theme: "Theme",
+    refresh: "Refresh",
     reset: "Reset",
     used: "Used",
     unknown: "Unknown",
@@ -39,10 +53,18 @@ const i18n = {
   }
 };
 
+const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const RESET_REFRESH_DELAY_MS = 10 * 1000;
+const MIN_RESET_REFRESH_DELAY_MS = 15 * 1000;
+
 let language = "zh";
 let isPinned = true;
-let latestQuota = null;
+let lastQuota = null;
 let latestError = null;
+let isRefreshing = false;
+let hasLoadedQuota = false;
+let autoRefreshTimerId = null;
+let resetRefreshTimerId = null;
 let currentRemainingPercent = null;
 let waveRafId = null;
 let wavePhase = Math.random() * Math.PI * 2;
@@ -85,6 +107,32 @@ function setState(state, bodyState = state) {
   elements.statusDot.className = `status-dot ${state}`;
 }
 
+function setStatusText(message) {
+  elements.statusText.textContent = message;
+  elements.statusText.title = message;
+}
+
+function setRefreshButtonLoading(value) {
+  elements.refreshBtn.disabled = Boolean(value);
+  elements.refreshBtn.classList.toggle("loading", Boolean(value));
+  const label = value ? t("refreshing") : t("refresh");
+  elements.refreshBtn.title = label;
+  elements.refreshBtn.setAttribute("aria-label", label);
+}
+
+function loadingMessageForReason(reason) {
+  if (reason === "auto") return t("refreshingAuto");
+  if (reason === "reset") return t("refreshingReset");
+  if (reason === "initial") return t("reading");
+  return t("refreshing");
+}
+
+function staleErrorMessageForReason(reason) {
+  if (reason === "auto") return t("refreshFailedStaleAuto");
+  if (reason === "reset") return t("refreshFailedStaleReset");
+  return t("refreshFailedStale");
+}
+
 function setUnknownQuota() {
   setState("loading", "unknown");
   currentRemainingPercent = 0;
@@ -97,14 +145,27 @@ function setUnknownQuota() {
   elements.liquidFill.style.height = "0%";
 }
 
-function setLoading() {
+function renderEmptyLoadingState() {
   latestError = null;
   setState("loading");
   elements.stateText.textContent = t("loading");
-  elements.statusText.textContent = t("reading");
-  elements.statusText.title = t("reading");
+  setStatusText(t("reading"));
   elements.remaining.textContent = "--%";
   elements.liquidFill.style.height = "18%";
+}
+
+function renderLoading({ preserveData = false, reason = "manual" } = {}) {
+  document.body.dataset.state = "loading";
+
+  if (preserveData && lastQuota) {
+    elements.statusDot.className = "status-dot loading";
+    setStatusText(loadingMessageForReason(reason));
+    setRefreshButtonLoading(true);
+    return;
+  }
+
+  renderEmptyLoadingState();
+  setRefreshButtonLoading(true);
 }
 
 function quotaState(percent) {
@@ -129,6 +190,65 @@ function formatPlan(value) {
   if (!value) return t("unknown");
   const plan = String(value);
   return `${plan.charAt(0).toUpperCase()}${plan.slice(1)}`;
+}
+
+function startAutoRefreshTimer() {
+  stopAutoRefreshTimer();
+
+  autoRefreshTimerId = window.setInterval(() => {
+    refreshQuota({ reason: "auto", preserveData: true });
+  }, AUTO_REFRESH_INTERVAL_MS);
+  console.debug("Codex quota auto refresh scheduled", { intervalMs: AUTO_REFRESH_INTERVAL_MS });
+}
+
+function stopAutoRefreshTimer() {
+  if (autoRefreshTimerId) {
+    window.clearInterval(autoRefreshTimerId);
+    autoRefreshTimerId = null;
+  }
+}
+
+function clearResetRefreshTimer() {
+  if (resetRefreshTimerId) {
+    window.clearTimeout(resetRefreshTimerId);
+    resetRefreshTimerId = null;
+  }
+}
+
+function getNextResetAt(quota) {
+  const candidates = [quota?.primary?.resetsAt, quota?.secondary?.resetsAt, quota?.resetsAt].filter(Boolean);
+  if (candidates.length === 0) return null;
+
+  const now = Date.now();
+  const futureTimes = candidates
+    .map((value) => new Date(value).getTime())
+    .filter((time) => Number.isFinite(time) && time > now)
+    .sort((a, b) => a - b);
+
+  if (futureTimes.length === 0) return null;
+  return new Date(futureTimes[0]).toISOString();
+}
+
+function scheduleResetRefresh(quota) {
+  clearResetRefreshTimer();
+
+  const resetsAt = getNextResetAt(quota);
+  if (!resetsAt) return;
+
+  const resetTime = new Date(resetsAt).getTime();
+  if (!Number.isFinite(resetTime)) return;
+
+  let delay = resetTime - Date.now() + RESET_REFRESH_DELAY_MS;
+  if (delay < MIN_RESET_REFRESH_DELAY_MS) {
+    delay = MIN_RESET_REFRESH_DELAY_MS;
+  }
+
+  resetRefreshTimerId = window.setTimeout(() => {
+    resetRefreshTimerId = null;
+    refreshQuota({ reason: "reset", preserveData: true });
+  }, delay);
+
+  console.debug("Codex quota reset refresh scheduled", { resetsAt, delayMs: delay });
 }
 
 function randomizeWave(remainingPercent) {
@@ -190,17 +310,21 @@ function renderStaticLabels() {
   elements.langBtn.textContent = language === "zh" ? "EN" : "中";
   elements.themeBtn.title = t("theme");
   elements.themeBtn.setAttribute("aria-label", t("theme"));
+  if (!isRefreshing) {
+    elements.refreshBtn.title = t("refresh");
+    elements.refreshBtn.setAttribute("aria-label", t("refresh"));
+  }
   elements.pinBtn.title = isPinned ? t("pinned") : t("unpinned");
   elements.pinBtn.setAttribute("aria-label", elements.pinBtn.title);
 }
 
 function restoreStatus() {
-  if (latestQuota) {
-    renderQuota(latestQuota);
+  if (lastQuota) {
+    renderQuota(lastQuota);
   } else if (latestError) {
-    renderError(latestError);
+    renderQuotaError(latestError);
   } else {
-    setLoading();
+    renderEmptyLoadingState();
   }
 }
 
@@ -214,7 +338,8 @@ function showThemeNotice(theme) {
 }
 
 function renderQuota(quota) {
-  latestQuota = quota;
+  lastQuota = quota;
+  hasLoadedQuota = true;
   latestError = null;
 
   if (quota.remainingPercent == null) {
@@ -242,9 +367,22 @@ function renderQuota(quota) {
   randomizeWave(percent);
 }
 
-function renderError(error) {
-  latestQuota = null;
+function getErrorSummary(error) {
+  const message = error?.message || String(error) || t("failed");
+  return message.split("\n")[0].slice(0, 160);
+}
+
+function renderQuotaError(error, { preserveData = false, reason = "manual" } = {}) {
   latestError = error;
+
+  if (preserveData && lastQuota) {
+    document.body.dataset.state = "stale-error";
+    elements.statusDot.className = "status-dot warning";
+    setStatusText(`${staleErrorMessageForReason(reason)}: ${getErrorSummary(error)}`);
+    return;
+  }
+
+  lastQuota = null;
   setState("danger", "error");
   elements.stateText.textContent = t("failed");
   elements.remaining.textContent = "--%";
@@ -253,8 +391,8 @@ function renderError(error) {
   elements.planText.textContent = "--";
   const errorMessage = t("diagnosticHint");
   elements.statusText.textContent = errorMessage;
-  elements.statusText.title = error?.message || String(error) || t("failed");
-  elements.liquidFill.style.height = "10%";
+  elements.statusText.title = getErrorSummary(error);
+  elements.liquidFill.style.height = "0%";
 }
 
 async function logQuotaErrorDiagnostics(error) {
@@ -267,14 +405,26 @@ async function logQuotaErrorDiagnostics(error) {
   }
 }
 
-async function refreshQuota() {
-  setLoading();
+async function refreshQuota(options = {}) {
+  const { reason = "manual", preserveData = Boolean(lastQuota) } = options;
+  if (isRefreshing) return;
+
+  isRefreshing = true;
+  renderLoading({ preserveData, reason });
+  console.debug("Codex quota refresh started", { reason, preserveData });
+
   try {
     const quota = await window.codexQuota.getQuota();
+    lastQuota = quota;
+    hasLoadedQuota = true;
     renderQuota(quota);
+    scheduleResetRefresh(quota);
   } catch (error) {
     logQuotaErrorDiagnostics(error);
-    renderError(error);
+    renderQuotaError(error, { preserveData: Boolean(lastQuota), reason });
+  } finally {
+    isRefreshing = false;
+    setRefreshButtonLoading(false);
   }
 }
 
@@ -290,24 +440,24 @@ async function syncPinState() {
 
 function rerenderLanguage() {
   renderStaticLabels();
-  if (latestQuota) {
-    renderQuota(latestQuota);
+  if (lastQuota) {
+    renderQuota(lastQuota);
   } else if (latestError) {
-    renderError(latestError);
+    renderQuotaError(latestError);
   } else {
-    setLoading();
+    renderEmptyLoadingState();
   }
 }
 
 function bindEvents() {
-  elements.refreshBtn.addEventListener("click", refreshQuota);
+  elements.refreshBtn.addEventListener("click", () => refreshQuota({ reason: "manual", preserveData: true }));
   elements.langBtn.addEventListener("click", () => {
     language = language === "zh" ? "en" : "zh";
     rerenderLanguage();
   });
   elements.themeBtn.addEventListener("click", () => {
     const theme = window.codexThemeManager.nextTheme();
-    randomizeWave(latestQuota?.remainingPercent);
+    randomizeWave(lastQuota?.remainingPercent);
     showThemeNotice(theme);
   });
   elements.pinBtn.addEventListener("click", async () => {
@@ -318,10 +468,10 @@ function bindEvents() {
   elements.minimizeBtn.addEventListener("click", () => window.codexQuota.minimize());
   elements.closeBtn.addEventListener("click", () => window.codexQuota.close());
 
-  window.codexQuota.onRefresh(refreshQuota);
+  window.codexQuota.onRefresh(() => refreshQuota({ reason: "tray", preserveData: true }));
   window.codexQuota.onThemeSet((themeId) => {
     const theme = window.codexThemeManager.applyTheme(themeId);
-    randomizeWave(latestQuota?.remainingPercent);
+    randomizeWave(lastQuota?.remainingPercent);
     showThemeNotice(theme);
   });
   window.codexQuota.onAlwaysOnTopChanged((value) => {
@@ -337,5 +487,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderStaticLabels();
   bindEvents();
   await syncPinState();
-  refreshQuota();
+  refreshQuota({ reason: "initial", preserveData: false });
+  startAutoRefreshTimer();
+});
+
+window.addEventListener("beforeunload", () => {
+  stopAutoRefreshTimer();
+  clearResetRefreshTimer();
 });
